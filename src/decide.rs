@@ -76,14 +76,14 @@ pub fn decide(root: &Path, cfg: &Config, cwd: &Path, subject: Subject) -> Decisi
                     ),
                     Ok(_) => (false, String::new()),
                     Err(e) => (
-                        cfg.on_uncertain != "allow",
+                        cfg.block_uncertain,
                         format!(
                             "The model check could not run ({e}), so Securer fell back to its safe default."
                         ),
                     ),
                 }
             } else {
-                (cfg.on_uncertain != "allow", String::new())
+                (cfg.block_uncertain, String::new())
             };
             if !block {
                 return Decision::allow();

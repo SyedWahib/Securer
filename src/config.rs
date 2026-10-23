@@ -15,9 +15,8 @@ pub struct Config {
     pub allow_write: Vec<String>,
     /// Directories whose programs may be run by absolute path, e.g. `/usr/bin/python3`.
     pub allow_exec: Vec<String>,
-    /// What to do when the command cannot be verified and no model is configured
-    /// (or the model fails): "block" (default) or "allow".
-    pub on_uncertain: String,
+    /// Block commands that can't be verified when no model is configured or the model fails.
+    pub block_uncertain: bool,
     /// Read shell scripts and code files that the command runs and check the paths in them.
     pub scan_scripts: bool,
     /// Paths inside the project the agent may read but never modify.
@@ -28,8 +27,7 @@ pub struct Config {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ModelConfig {
-    /// "none", "command" (run a program per decision) or "http" (POST to a local server).
-    pub backend: String,
+    pub backend: Backend,
     /// For "command": program and arguments, relative paths resolve from the project root.
     pub command: Vec<String>,
     /// For "http": e.g. "http://127.0.0.1:8765/decide".
@@ -39,13 +37,35 @@ pub struct ModelConfig {
     pub timeout_ms: u64,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Backend {
+    /// No model: uncertain commands follow `block_uncertain`.
+    #[default]
+    None,
+    /// Run a program once per decision.
+    Command,
+    /// POST to a local server.
+    Http,
+}
+
+impl std::fmt::Display for Backend {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str(match self {
+            Backend::None => "none",
+            Backend::Command => "command",
+            Backend::Http => "http",
+        })
+    }
+}
+
 impl Default for Config {
     fn default() -> Self {
         Config {
             allow_read: vec![],
             allow_write: vec![],
             allow_exec: default_exec(),
-            on_uncertain: "block".into(),
+            block_uncertain: true,
             scan_scripts: true,
             protected: default_protected(),
             model: ModelConfig::default(),
@@ -56,7 +76,7 @@ impl Default for Config {
 impl Default for ModelConfig {
     fn default() -> Self {
         ModelConfig {
-            backend: "none".into(),
+            backend: Backend::None,
             command: vec![],
             url: String::new(),
             threshold: 0.5,
@@ -132,10 +152,10 @@ allow_write = []
 # Directories whose programs may be run by absolute path.
 allow_exec = ["/bin", "/sbin", "/usr/bin", "/usr/sbin", "/usr/local/bin", "/opt/homebrew/bin", "/nix/store", "/run/current-system/sw/bin", "/snap/bin"]
 
-# When a command cannot be verified (python -c with computed paths, eval of
-# command output, piping generated text into a shell...) and the model is off
-# or fails: "block" (safe) or "allow" (convenient).
-on_uncertain = "block"
+# Block commands that can't be verified (python -c with computed paths, eval
+# of command output, piping generated text into a shell...) when the model is
+# off or fails. false lets them run.
+block_uncertain = true
 
 # Also read the shell scripts and code files a command runs and check the paths in them.
 scan_scripts = true
@@ -145,7 +165,7 @@ protected = [".securer", ".claude/settings.json", ".claude/settings.local.json",
 
 [model]
 # The small classifier asked about commands the parser cannot decide.
-# "none": no model, use on_uncertain.
+# "none": no model, use block_uncertain.
 # "command": run a program once per decision (JSON on stdin, JSON on stdout).
 # "http": POST the same JSON to a local server (faster; keeps the model loaded).
 # `securer model setup julia` fills this in for Supersonic Labs' Julia 1.
@@ -155,3 +175,27 @@ url = ""
 threshold = 0.5
 timeout_ms = 20000
 "#;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_file_matches_defaults() {
+        let parsed: Config = toml::from_str(DEFAULT_TOML).unwrap();
+        let d = Config::default();
+        assert_eq!(parsed.block_uncertain, d.block_uncertain);
+        assert_eq!(parsed.model.backend, Backend::None);
+        assert_eq!(parsed.protected, d.protected);
+        assert_eq!(parsed.allow_exec, d.allow_exec);
+    }
+
+    #[test]
+    fn rejects_values_it_does_not_know() {
+        assert!(toml::from_str::<Config>("block_uncertain = \"yes\"").is_err());
+        assert!(toml::from_str::<Config>("[model]\nbackend = \"htp\"").is_err());
+        assert!(toml::from_str::<Config>("on_uncertain = \"allow\"").is_err());
+        let c: Config = toml::from_str("[model]\nbackend = \"http\"").unwrap();
+        assert_eq!(c.model.backend, Backend::Http);
+    }
+}

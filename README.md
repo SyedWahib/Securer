@@ -36,7 +36,7 @@ globally and nothing is written to your home directory or to the agents' own con
    only known at runtime (the output of `cat list.txt`, `os.environ` in inline Python, a script piped
    into `sh`), the command is *uncertain*.
 5. Uncertain commands go to a small local model if you set one up (see below), and are blocked
-   otherwise. You can change that to "allow" in the config.
+   otherwise. Set `block_uncertain = false` in the config to let them run instead.
 
 The parser makes the decision for the vast majority of commands in a few milliseconds. The model only
 sees what the parser can't decide.
@@ -89,7 +89,7 @@ runs the install line once.
 ```toml
 allow_read = []          # e.g. ["/tmp", "~/.cargo/registry"]
 allow_write = []
-on_uncertain = "block"   # or "allow"
+block_uncertain = true   # false lets unverifiable commands run
 scan_scripts = true      # look inside scripts the command runs (./build.sh, python tool.py)
 ```
 

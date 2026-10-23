@@ -264,7 +264,7 @@ pub fn status(root: &Path) -> Result<(), String> {
         if crate::model::enabled(&cfg.model) {
             format!("asked to the model ({})", cfg.model.backend)
         } else {
-            format!("{} (no model)", cfg.on_uncertain)
+            format!("{} (no model)", if cfg.block_uncertain { "blocked" } else { "allowed" })
         }
     );
     let checks: &[(&str, &str)] = &[

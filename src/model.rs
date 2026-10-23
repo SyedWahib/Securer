@@ -6,7 +6,7 @@
 //!   in:  {"state": "...", "question": "...", "options": ["no...", "yes..."], "type": "noul"}
 //!   out: {"probabilities": [p_no, p_yes]}   (or {"index": 1, "probabilities": [...]})
 
-use crate::config::ModelConfig;
+use crate::config::{Backend, ModelConfig};
 use serde_json::{json, Value};
 use std::io::{Read, Write};
 use std::path::Path;
@@ -19,7 +19,7 @@ pub const OPTIONS: [&str; 2] = [
 ];
 
 pub fn enabled(cfg: &ModelConfig) -> bool {
-    matches!(cfg.backend.as_str(), "command" | "http")
+    cfg.backend != Backend::None
 }
 
 /// Returns the probability that the command reaches outside the root.
@@ -27,10 +27,10 @@ pub fn ask(cfg: &ModelConfig, root: &Path, state: &str) -> Result<f64, String> {
     let req = json!({ "state": state, "question": QUESTION, "options": OPTIONS, "type": "noul" });
     let body = serde_json::to_vec(&req).unwrap();
     let timeout = Duration::from_millis(cfg.timeout_ms.max(100));
-    let out = match cfg.backend.as_str() {
-        "command" => run_command(cfg, root, &body, timeout)?,
-        "http" => post(&cfg.url, &body, timeout)?,
-        other => return Err(format!("unknown model backend `{other}`")),
+    let out = match cfg.backend {
+        Backend::Command => run_command(cfg, root, &body, timeout)?,
+        Backend::Http => post(&cfg.url, &body, timeout)?,
+        Backend::None => return Err("no model backend is configured".into()),
     };
     let v: Value = serde_json::from_slice(&out).map_err(|e| format!("model returned invalid JSON: {e}"))?;
     if let Some(e) = v.get("error").and_then(|e| e.as_str()) {
