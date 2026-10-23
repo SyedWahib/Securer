@@ -88,6 +88,18 @@ pub struct Policy {
     pub home: PathBuf,
 }
 
+/// Protected entries are relative to the root but apply at any depth, so a
+/// project nested under a shared install keeps its own hook files covered:
+/// `.claude/settings.json` also protects `app/.claude/settings.json`.
+fn protects(entry: &Path, p: &Path, rel: &Path) -> bool {
+    if entry.is_absolute() {
+        return paths::is_within(p, entry);
+    }
+    let parts: Vec<_> = rel.components().collect();
+    let want: Vec<_> = entry.components().collect();
+    !want.is_empty() && (0..parts.len()).any(|i| parts[i..].starts_with(&want))
+}
+
 impl Policy {
     pub fn new(root: &Path, cfg: &Config) -> Policy {
         let root = paths::canonical_or(root);
@@ -96,7 +108,7 @@ impl Policy {
             allow_read: ex(&cfg.allow_read),
             allow_write: ex(&cfg.allow_write),
             allow_exec: ex(&cfg.allow_exec),
-            protected: cfg.protected.iter().map(|s| root.join(s)).collect(),
+            protected: cfg.protected.iter().map(PathBuf::from).collect(),
             protected_names: cfg.protected.clone(),
             scan_scripts: cfg.scan_scripts,
             home: config::home(),
@@ -128,7 +140,8 @@ impl Policy {
             return None;
         }
         if paths::is_within(p, &self.root) {
-            let protected = self.protected.iter().any(|pr| paths::is_within(p, pr));
+            let rel = p.strip_prefix(&self.root).unwrap_or(p);
+            let protected = self.protected.iter().any(|pr| protects(pr, p, rel));
             if protected && matches!(access, Access::Write | Access::Unknown | Access::Literal) {
                 return Some(Denial::Protected);
             }

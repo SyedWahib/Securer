@@ -20,7 +20,7 @@ import { join } from "node:path";
 
 export const Securer = async ({ directory, worktree }) => {
   const root = worktree || directory;
-  const bin = join(root, ".securer", "bin", process.platform === "win32" ? "securer.exe" : "securer");
+  const bin = join(root, "{up}.securer", "bin", process.platform === "win32" ? "securer.exe" : "securer");
   return {
     "tool.execute.before": async (input, output) => {
       const payload = JSON.stringify({ tool: input.tool, args: output.args, cwd: directory });
@@ -104,27 +104,36 @@ pub fn init(root: &Path, names: &[String]) -> Result<(), String> {
         }
     }
     let mut report = Vec::new();
-    let dot = root.join(DIR);
-    let bin_dir = dot.join("bin");
-    std::fs::create_dir_all(&bin_dir).map_err(|e| e.to_string())?;
-
-    let target = bin_dir.join(bin_name());
-    let me = std::env::current_exe().map_err(|e| e.to_string())?;
-    let same = me.canonicalize().ok() == target.canonicalize().ok();
-    if !same {
-        std::fs::copy(&me, &target)
-            .map_err(|e| format!("could not copy securer into {}: {e}", target.display()))?;
-        make_executable(&target);
-        report.push(format!("{DIR}/bin/{}", bin_name()));
-    }
-    let cfg_path = dot.join("config.toml");
-    if !cfg_path.exists() {
-        write(&cfg_path, config::DEFAULT_TOML, &mut report, root)?;
-    }
+    // A project inside a folder that already has Securer reuses that install:
+    // only the agents' hook files are written here, and they point up to it.
+    let home = shared_install(root).unwrap_or_else(|| root.to_path_buf());
+    let depth = root.strip_prefix(&home).map(|r| r.components().count()).unwrap_or(0);
+    let up = "../".repeat(depth);
+    let bin = format!("{up}{DIR}/bin/securer");
+    let bin_win = format!("{}.exe", bin.replace('/', "\\"));
+    let bin_dir = home.join(DIR).join("bin");
     let shim = bin_dir.join("securer-sh");
-    write(&shim, SH_SHIM, &mut report, root)?;
-    make_executable(&shim);
-    write(&dot.join(".gitignore"), "# Machine-specific files. config.toml is meant to be committed.\nbin/securer\nbin/securer.exe\nmodel/venv/\nmodel/Julia-1/\nmodel/hf/\nmodel/*.sock\n", &mut report, root)?;
+
+    if home == root {
+        let dot = root.join(DIR);
+        std::fs::create_dir_all(&bin_dir).map_err(|e| e.to_string())?;
+        let target = bin_dir.join(bin_name());
+        let me = std::env::current_exe().map_err(|e| e.to_string())?;
+        let same = me.canonicalize().ok() == target.canonicalize().ok();
+        if !same {
+            std::fs::copy(&me, &target)
+                .map_err(|e| format!("could not copy securer into {}: {e}", target.display()))?;
+            make_executable(&target);
+            report.push(format!("{DIR}/bin/{}", bin_name()));
+        }
+        let cfg_path = dot.join("config.toml");
+        if !cfg_path.exists() {
+            write(&cfg_path, config::DEFAULT_TOML, &mut report, root)?;
+        }
+        write(&shim, SH_SHIM, &mut report, root)?;
+        make_executable(&shim);
+        write(&dot.join(".gitignore"), "# Machine-specific files. config.toml is meant to be committed.\nbin/securer\nbin/securer.exe\nmodel/venv/\nmodel/Julia-1/\nmodel/hf/\nmodel/*.sock\n", &mut report, root)?;
+    }
 
     for a in &agents {
         match a.as_str() {
@@ -136,7 +145,7 @@ pub fn init(root: &Path, names: &[String]) -> Result<(), String> {
                     &["hooks", "PreToolUse"],
                     json!({
                         "matcher": "*",
-                        "hooks": [{ "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/.securer/bin/securer hook claude", "timeout": 30 }]
+                        "hooks": [{ "type": "command", "command": format!("\"$CLAUDE_PROJECT_DIR\"/{bin} hook claude"), "timeout": 30 }]
                     }),
                 );
                 save_json(&p, &doc, &mut report, root)?;
@@ -152,7 +161,7 @@ pub fn init(root: &Path, names: &[String]) -> Result<(), String> {
                         "matcher": "*",
                         "hooks": [{
                             "type": "command",
-                            "command": "\"$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.securer/bin/securer\" hook codex",
+                            "command": format!("\"$(git rev-parse --show-toplevel 2>/dev/null || pwd)/{bin}\" hook codex"),
                             "timeout": 30,
                             "statusMessage": "Securer: checking paths"
                         }]
@@ -167,7 +176,7 @@ pub fn init(root: &Path, names: &[String]) -> Result<(), String> {
                 if doc.get("version").is_none() {
                     doc["version"] = json!(1);
                 }
-                let cmd = ".securer/bin/securer hook cursor";
+                let cmd = format!("{bin} hook cursor");
                 upsert(
                     &mut doc,
                     &["hooks", "beforeShellExecution"],
@@ -193,7 +202,7 @@ pub fn init(root: &Path, names: &[String]) -> Result<(), String> {
                     &["hooks", "BeforeTool"],
                     json!({
                         "matcher": ".*",
-                        "hooks": [{ "name": "securer", "type": "command", "command": "\"$GEMINI_PROJECT_DIR\"/.securer/bin/securer hook gemini", "timeout": 30000 }]
+                        "hooks": [{ "name": "securer", "type": "command", "command": format!("\"$GEMINI_PROJECT_DIR\"/{bin} hook gemini"), "timeout": 30000 }]
                     }),
                 );
                 save_json(&p, &doc, &mut report, root)?;
@@ -205,8 +214,8 @@ pub fn init(root: &Path, names: &[String]) -> Result<(), String> {
                     "hooks": {
                         "preToolUse": [{
                             "type": "command",
-                            "bash": ".securer/bin/securer hook copilot",
-                            "powershell": ".securer\\bin\\securer.exe hook copilot",
+                            "bash": format!("{bin} hook copilot"),
+                            "powershell": format!("{bin_win} hook copilot"),
                             "cwd": ".",
                             "timeoutSec": 30
                         }]
@@ -223,22 +232,27 @@ pub fn init(root: &Path, names: &[String]) -> Result<(), String> {
                     upsert(
                         &mut doc,
                         &["hooks", ev],
-                        json!({ "command": ".securer/bin/securer hook windsurf", "powershell": ".securer\\bin\\securer.exe hook windsurf", "show_output": true }),
+                        json!({ "command": format!("{bin} hook windsurf"), "powershell": format!("{bin_win} hook windsurf"), "show_output": true }),
                     );
                 }
                 save_json(&p, &doc, &mut report, root)?;
             }
             "opencode" => {
                 let p = root.join(".opencode/plugins/securer.js");
-                write(&p, OPENCODE_PLUGIN, &mut report, root)?;
+                write(&p, &OPENCODE_PLUGIN.replace("{up}", &up), &mut report, root)?;
             }
             "aider" => {}
             _ => {}
         }
     }
 
-    println!("Securer is set up for {}.", root.display());
-    println!("The agent may now only read and write inside this folder.\n");
+    if home == root {
+        println!("Securer is set up for {}.", root.display());
+        println!("The agent may now only read and write inside this folder.\n");
+    } else {
+        println!("Securer is set up for {}, using the install in {}.", root.display(), home.display());
+        println!("The agent may now only read and write inside {}.\n", home.display());
+    }
     println!("Wrote:");
     for r in &report {
         println!("  {r}");
@@ -249,11 +263,21 @@ pub fn init(root: &Path, names: &[String]) -> Result<(), String> {
             shim.display()
         );
     }
-    println!("\nTry it:  {DIR}/bin/securer check 'cat ~/.ssh/id_rsa'");
-    println!(
-        "Optional: {DIR}/bin/securer model setup julia   (local model for commands the parser can't decide)"
-    );
+    println!("\nTry it:  {bin} check 'cat ~/.ssh/id_rsa'");
+    println!("Optional: {bin} model setup julia   (local model for commands the parser can't decide)");
     Ok(())
+}
+
+/// The nearest folder above `root` that has a Securer binary, unless `root`
+/// has its own `.securer`.
+fn shared_install(root: &Path) -> Option<PathBuf> {
+    if root.join(DIR).is_dir() {
+        return None;
+    }
+    root.ancestors()
+        .skip(1)
+        .find(|a| a.join(DIR).join("bin").join(bin_name()).is_file())
+        .map(Path::to_path_buf)
 }
 
 pub fn status(root: &Path) -> Result<(), String> {

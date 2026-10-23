@@ -225,8 +225,11 @@ fn protected_files_cannot_be_changed() {
         "sed -i 's/securer//' .claude/settings.json",
         "mv .cursor/hooks.json x",
         "python3 -c \"open('.securer/config.toml','w').write('')\"",
+        "echo '{}' > app/.claude/settings.json",
+        "rm src/.cursor/hooks.json",
     ];
     expect_all(&f, "block", &cmds);
+    allowed(&f, "echo hi > app/settings.json");
     allowed(&f, "cat .securer/config.toml");
     allowed(&f, "ls .securer");
 }

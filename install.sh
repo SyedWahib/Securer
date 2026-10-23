@@ -5,6 +5,18 @@
 set -eu
 
 repo="SyedWahib/Securer"
+
+# Inside a folder that already has Securer, reuse that install instead of downloading another copy.
+if [ ! -d .securer ]; then
+  d=$(pwd)
+  while [ "$d" != / ]; do
+    d=$(dirname "$d")
+    if [ -x "$d/.securer/bin/securer" ]; then
+      exec "$d/.securer/bin/securer" init "$@"
+    fi
+  done
+fi
+
 os=$(uname -s)
 arch=$(uname -m)
 case "$os-$arch" in

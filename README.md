@@ -67,6 +67,16 @@ cd /path/to/your/project
 `.securer/bin/securer` is git-ignored because it's platform-specific; anyone who clones the project
 runs the install line once.
 
+## Several projects
+
+Securer doesn't need a copy per project. Install it once in the folder that holds your projects,
+for example `~/code` (set `SECURER_FORCE=1`, since that folder isn't a repository). Running the
+install line or `init` inside any project below it reuses that install: it only writes the agents'
+hook files, which point up to the shared binary, config and model.
+
+The allowed directory is then the shared folder, so an agent working in one project can also read
+the others. A project that needs a tighter boundary can have its own `.securer`.
+
 ## Supported agents
 
 | Agent | Project file `init` writes | Notes |
