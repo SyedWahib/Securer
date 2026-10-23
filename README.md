@@ -104,18 +104,27 @@ probability in one forward pass, which makes them fast enough to sit in front of
 
 ```sh
 .securer/bin/securer model setup julia   # writes .securer/model/ and points the config at it
-sh .securer/model/setup.sh               # Python venv, CPU PyTorch and the weights, all in .securer/model
+sh .securer/model/setup.sh               # ONNX Runtime and the weights, all in .securer/model
 .securer/bin/securer model test
 ```
 
 - `julia`: [Julia 1](https://huggingface.co/SupersonicLabs/Julia-1) by Supersonic Labs, 144M
-  parameters, runs on CPU, Apache 2.0. The default because it's the lightest.
+  parameters, Apache 2.0. The default because it's the lightest. Securer runs Supersonic's
+  [ONNX export](https://huggingface.co/SupersonicLabs/Julia-1-ONNX) on ONNX Runtime, so PyTorch
+  isn't needed.
 - `laya`: [Laya](https://huggingface.co/convaiinnovations/laya-multilingual) by Convai Innovations,
-  322M parameters, Apache 2.0.
+  322M parameters, Apache 2.0. It runs on PyTorch and needs about 2 GB.
+
+Julia's setup downloads about 670 MB and checks every file against the hash published for a
+pinned revision. It then quantizes the weights to INT8, which makes them about four times smaller,
+and runs Supersonic's 100 reference cases through both versions. The INT8 weights are kept only
+if they pick the same answer as the original model in at least 97 of them; otherwise setup keeps
+the full-precision weights. About 350 MB stays on disk afterwards: 165 MB of Python packages, the
+weights and a 34 MB tokenizer. Set `HF_ENDPOINT` to download through a Hugging Face mirror.
 
 Python 3.11 or newer is needed. The first uncertain command loads the model, which takes a few
 seconds; a warm copy then stays in the background on a Unix socket in `.securer/model/` and
-answers in tens of milliseconds until it has been idle for 30 minutes.
+answers in about a tenth of a second until it has been idle for 30 minutes.
 
 Neither model has been trained for this task, so treat its answers as a tiebreaker, not a security
 boundary. Any other classifier can be plugged in: the `command` backend runs a program that reads

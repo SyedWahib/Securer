@@ -124,7 +124,7 @@ pub fn init(root: &Path, names: &[String]) -> Result<(), String> {
     let shim = bin_dir.join("securer-sh");
     write(&shim, SH_SHIM, &mut report, root)?;
     make_executable(&shim);
-    write(&dot.join(".gitignore"), "# Machine-specific files. config.toml is meant to be committed.\nbin/securer\nbin/securer.exe\nmodel/venv/\nmodel/Julia-1/\nmodel/hf/\nmodel/pip-cache/\nmodel/*.sock\n", &mut report, root)?;
+    write(&dot.join(".gitignore"), "# Machine-specific files. config.toml is meant to be committed.\nbin/securer\nbin/securer.exe\nmodel/venv/\nmodel/Julia-1/\nmodel/hf/\nmodel/*.sock\n", &mut report, root)?;
 
     for a in &agents {
         match a.as_str() {
@@ -302,19 +302,23 @@ pub fn model_setup(root: &Path, which: &str) -> Result<(), String> {
 # Installs the {which} model and its Python packages inside .securer/model only.
 set -e
 cd "$(dirname "$0")"
-export PIP_CACHE_DIR="$PWD/pip-cache" HF_HOME="$PWD/hf" HF_HUB_DISABLE_TELEMETRY=1
+export PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1 HF_HOME="$PWD/hf" HF_HUB_DISABLE_TELEMETRY=1
 PY="${{PYTHON:-python3}}"
 "$PY" -m venv venv
-./venv/bin/python -m pip install --upgrade pip
-./venv/bin/python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
-./venv/bin/python -m pip install huggingface_hub
 {install}
 echo "Done. Test it with: ../bin/securer model test"
 "#,
         install = if which == "julia" {
-            "./venv/bin/python -c \"from huggingface_hub import snapshot_download; snapshot_download('SupersonicLabs/Julia-1', local_dir='Julia-1')\"\n./venv/bin/python -m pip install -e ./Julia-1"
+            "./venv/bin/python -m pip install \"onnxruntime>=1.20\" numpy\n\
+             ./venv/bin/python -m pip install --no-deps \"tokenizers>=0.20\"\n\
+             # onnx is only needed to quantize the weights, so it is removed again afterwards.\n\
+             ./venv/bin/python -m pip install onnx\n\
+             ./venv/bin/python securer_model.py --engine julia --install\n\
+             ./venv/bin/python -m pip uninstall -y onnx ml_dtypes"
         } else {
-            "./venv/bin/python -m pip install laya\nUSE_TF=0 ./venv/bin/python -c \"import laya; laya.load('convaiinnovations/laya-multilingual')\""
+            "./venv/bin/python -m pip install torch --index-url https://download.pytorch.org/whl/cpu\n\
+             ./venv/bin/python -m pip install laya\n\
+             USE_TF=0 ./venv/bin/python -c \"import laya; laya.load('convaiinnovations/laya-multilingual')\""
         }
     );
     let sp = dir.join("setup.sh");
@@ -342,9 +346,14 @@ echo "Done. Test it with: ../bin/securer model test"
     for r in &report {
         println!("  {r}");
     }
-    println!("\nNext, install the model (about 1 GB, all inside {DIR}/model):\n  sh {}\n", sp.display());
+    let size = if which == "julia" {
+        "downloads about 670 MB, keeps about 350 MB"
+    } else {
+        "about 2 GB, since Laya needs PyTorch"
+    };
+    println!("\nNext, install the model ({size}, all inside {DIR}/model):\n  sh {}\n", sp.display());
     println!("The first uncertain command loads the model (a few seconds); after that a");
-    println!("background copy stays warm on 127.0.0.1 and answers in well under a second.");
+    println!("background copy stays warm and answers in about 100 ms.");
     Ok(())
 }
 
